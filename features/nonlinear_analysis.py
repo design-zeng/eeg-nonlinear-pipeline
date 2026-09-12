@@ -321,7 +321,9 @@ def nonlinear_analysis(
 
     def load_channel(ch_idx):
         if use_cache:
-            return np.load(temp_dir / f"ch_{ch_idx:02d}.npy", mmap_mode="r")
+            # Avoid mmap on Windows: open memmaps keep handles and block shutil.rmtree
+            # (WinError 32) after channel processing finishes.
+            return np.load(temp_dir / f"ch_{ch_idx:02d}.npy")
         else:
             return signal2[ch_idx]
 
@@ -378,7 +380,22 @@ def nonlinear_analysis(
 
     # ─── Clean up temp cache ────────────────────────────────────────
     if temp_dir and temp_dir.exists():
-        shutil.rmtree(temp_dir)
+        import gc
+        import time as _time
+
+        gc.collect()
+        last_err = None
+        for _ in range(5):
+            try:
+                shutil.rmtree(temp_dir)
+                last_err = None
+                break
+            except PermissionError as exc:  # Windows file-lock race
+                last_err = exc
+                _time.sleep(0.2)
+                gc.collect()
+        if last_err is not None:
+            warnings.warn(f"Could not remove nonlinear cache {temp_dir}: {last_err}")
 
     # ─── Return result ──────────────────────────────────────────────
     feat_arr = np.asarray(feat_rows, dtype=float)

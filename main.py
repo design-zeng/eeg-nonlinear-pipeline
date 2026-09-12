@@ -250,9 +250,9 @@ def _process_subject(
 
     cpu_cnt = os.cpu_count() or 1
     # Prepare cache dir (always create – might stay empty)
-    cache_dir = output_dir / "__sig_cache"
-    cache_dir = output_dir / f"__sig_cache_{subj}_{uuid4().hex[:8]}"
-    cache_dir.mkdir(exist_ok=True)
+    base_cache_dir = CACHE_DIR if CACHE_DIR else output_dir
+    cache_dir = base_cache_dir / f"__sig_cache_{subj}_{uuid4().hex[:8]}"
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     # Helpers for the two strategies
@@ -459,7 +459,7 @@ def _process_subject(
             max_threads_per_ch, tentative_workers = compute_max_threads(
                 mem_workers, tentative_workers, PARALLEL_TASK_COUNT
             )
-            #tentative_workers = 6 if tentative_workers>6 else tentative_workers
+            tentative_workers = 5 if tentative_workers>5 else tentative_workers
             logger.info(
                 "%s – %s – %s → %s (max_threads_per_channel=%d, max_workers=%d)",
                 subj, task, k,
@@ -536,31 +536,33 @@ def _process_subject(
     # ------------------------------------------------------------------
     # 3. Run all tasks sequentially
     # ------------------------------------------------------------------
-    results: Dict[str, List[np.ndarray]] = {}
-    for task, keys in task_map.items():
-        results[task] = _process_task(task, keys)
+    try:
+        results: Dict[str, List[np.ndarray]] = {}
+        for task, keys in task_map.items():
+            results[task] = _process_task(task, keys)
 
-    # ------------------------------------------------------------------
-    # 4. Persist outputs
-    # ------------------------------------------------------------------
-    jpath = output_dir / f"{subj}_features.json"
-    jpath.write_text(
-        json.dumps({k: [v.tolist() for v in vecs] for k, vecs in results.items()}, indent=2),
-        encoding="utf-8",
-    )
-    logger.info("Saved %s", jpath.name)
+        # ------------------------------------------------------------------
+        # 4. Persist outputs
+        # ------------------------------------------------------------------
+        jpath = output_dir / f"{subj}_features.json"
+        jpath.write_text(
+            json.dumps({k: [v.tolist() for v in vecs] for k, vecs in results.items()}, indent=2),
+            encoding="utf-8",
+        )
+        logger.info("Saved %s", jpath.name)
 
-    if save_mat:
-        mat_out = {f"NL_Features_{k}": np.stack(v, axis=0) for k, v in results.items()}
-        savemat(output_dir / f"{subj}_NL_Results.mat", mat_out)
-        logger.info("Saved %s_NL_Results.mat", subj)
+        if save_mat:
+            mat_out = {f"NL_Features_{k}": np.stack(v, axis=0) for k, v in results.items()}
+            savemat(output_dir / f"{subj}_NL_Results.mat", mat_out)
+            logger.info("Saved %s_NL_Results.mat", subj)
 
-    # ------------------------------------------------------------------
-    # 5. Cleanup
-    # ------------------------------------------------------------------
-    shutil.rmtree(cache_dir, ignore_errors=True)
-    logger.info("Finish processing %s", subj)
-    return subj
+        logger.info("Finish processing %s", subj)
+        return subj
+    finally:
+        # ------------------------------------------------------------------
+        # 5. Cleanup
+        # ------------------------------------------------------------------
+        shutil.rmtree(cache_dir, ignore_errors=True)
 
 
 # -------------------------------------------------------------------------
@@ -590,6 +592,11 @@ def process(
         True,
         "--use-gpu/--no-use-gpu",
         help="Use GPU calc"
+    ),
+    skip_existing: bool = typer.Option(
+        True,
+        "--skip-existing/--force",
+        help="Skip subjects that already have *_features.json in output_dir (for resumption)"
     )
 ) -> None:
     # ---- validate method ----
@@ -616,16 +623,25 @@ def process(
 
     # ---- per-subject processing ----
     for f in sub_files:
+        subj = f.stem
+        feat_json = output_dir / f"{subj}_features.json"
+        if skip_existing and feat_json.exists():
+            logger.info(f"[SKIP] Skipping {subj} (already completed: {feat_json.name})")
+            continue
         _process_subject(
             f, fs, tau, lag, emb_dim, TASK_MAP, output_dir, save_mat, method=method_norm, use_gpu=use_gpu
         )
 
-    logger.info("✅ All subjects finished.")
+    logger.info("[OK] All subjects finished.")
 
     # -------- merge subject JSONs to global JSON / MAT -------------------
     merged: dict[str, list[list[float]]] = {k: [] for k in list(TASK_MAP.keys())}
 
-    for sf in sorted(output_dir.glob("S*_features.json")):
+    # Prefer legacy S*_features.json; also accept Data_Creativity_Sub_*_features.json
+    feature_files = sorted(output_dir.glob("S*_features.json"))
+    if not feature_files:
+        feature_files = sorted(output_dir.glob("*_features.json"))
+    for sf in feature_files:
         with sf.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
         for task in merged:
@@ -634,7 +650,7 @@ def process(
     (output_dir / "Creativity_NL_Data.json").write_text(
         json.dumps(merged, indent=2), encoding="utf-8"
     )
-    logger.info("✅ Saved Creativity_NL_Data.json")
+    logger.info("[OK] Saved Creativity_NL_Data.json")
 
     if save_mat:
         from scipy.io import savemat
@@ -642,10 +658,17 @@ def process(
             output_dir / "Creativity_NL_Data.mat",
             {f"NL_Features_{k}": np.asarray(v) for k, v in merged.items()},
         )
-        logger.info("✅ Saved Creativity_NL_Data.mat")
+        logger.info("[OK] Saved Creativity_NL_Data.mat")
 
 
 if __name__ == "__main__":
     import sys
-    sys.argv.extend(["process", "--method", "rqa"])
+
+    if len(sys.argv) == 1:
+        sys.argv.extend([
+            "process",
+            "--method", "rqa",
+            # "--no-use-gpu",
+        ])
+
     app()

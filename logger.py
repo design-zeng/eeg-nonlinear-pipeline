@@ -12,7 +12,7 @@ def get_logger(name: str = "eeg_pipeline"):
         console.setFormatter(fmt)
         logger.addHandler(console)
 
-        file_handler = logging.FileHandler(LOGGER_DIR / f"{name}.log", mode="w")
+        file_handler = logging.FileHandler(LOGGER_DIR / f"{name}.log", mode="w", encoding="utf-8")
         file_handler.setFormatter(fmt)
         logger.addHandler(file_handler)
     return logger
