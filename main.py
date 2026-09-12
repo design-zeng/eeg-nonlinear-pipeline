@@ -597,6 +597,11 @@ def process(
         True,
         "--skip-existing/--force",
         help="Skip subjects that already have *_features.json in output_dir (for resumption)"
+    ),
+    subjects: str = typer.Option(
+        None,
+        "--subjects",
+        help="Filter specific subjects by comma-separated tokens (e.g. '12,13,14' or 'Sub_02,Sub_03')"
     )
 ) -> None:
     # ---- validate method ----
@@ -619,7 +624,12 @@ def process(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     sub_files = sorted(data_dir.glob("*.mat"))
-    logger.info(f"Found {len(sub_files)} subjects in {data_dir}")
+    if subjects:
+        target_tokens = [s.strip() for s in subjects.split(",") if s.strip()]
+        sub_files = [f for f in sub_files if any(tok in f.name for tok in target_tokens)]
+        logger.info(f"Filtering subjects by {target_tokens}: found {len(sub_files)} matching files")
+    else:
+        logger.info(f"Found {len(sub_files)} subjects in {data_dir}")
 
     # ---- per-subject processing ----
     for f in sub_files:
