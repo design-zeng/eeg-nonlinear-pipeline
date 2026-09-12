@@ -677,12 +677,23 @@ def rqa_analysis(
 
     n_ch, _ = signal2.shape
     m_final = m or emb_dim or 1
+
+    # Verify that GPU and CUDA driver are genuinely available before proceeding with GPU path
+    if use_gpu:
+        try:
+            import cupy as cp
+            if cp.cuda.runtime.getDeviceCount() == 0:
+                warnings.warn("No compatible GPU device found; falling back to CPU calculation.")
+                use_gpu = False
+        except Exception as exc:
+            warnings.warn(f"GPU/CUDA driver unavailable ({exc}); automatically falling back to CPU calculation.")
+            use_gpu = False
+
     cfg_common = dict(m=m_final, tau=tau, e=e, lmin=lmin, vmin=vmin,
                       theiler=theiler, method=method,
                       normalize=normalize, use_gpu=use_gpu, max_threads_per_channel=max_threads_per_channel)
 
     # --- decide strategy ---
-    # thread_only = (not max_workers or max_workers <= 1) or not use_gpu
     thread_only = not use_gpu
     results: list[np.ndarray] = []
 
