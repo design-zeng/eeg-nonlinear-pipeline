@@ -574,7 +574,11 @@ def _gpu_worker(task_q: managers.QueueProxy,
         result_q.put(("ERROR", "CuPy not available"))
         return
 
-    cp.cuda.Device(device_id).use()
+    try:
+        cp.cuda.Device(device_id).use()
+    except Exception as exc:
+        result_q.put(("ERROR", f"CUDA init failed: {exc}"))
+        return
 
     while True:
         try:
