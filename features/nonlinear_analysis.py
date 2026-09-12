@@ -44,20 +44,12 @@ except ImportError:  # pragma: no cover
     warnings.warn(
         "PyWavelets not installed — Wavelet entropy will be returned as NaN. Run `pip install PyWavelets`.")
 
-# Optional: Recurrence Quantification Analysis (pyrqa)
+# Optional: Recurrence Quantification Analysis (pyrqa - legacy/optional)
 try:
-    from pyrqa.time_series import TimeSeries
-    from pyrqa.settings import Settings
-    from pyrqa.analysis_type import Classic
-    from pyrqa.neighbourhood import FixedRadius
-    from pyrqa.computation import RQAComputation
-    from pyrqa.metric import EuclideanMetric
-
+    import pyrqa
     PYRQA_OK = True
-except ImportError:  # pragma: no cover
+except ImportError:
     PYRQA_OK = False
-    warnings.warn(
-        "pyrqa not installed — RQA features will be NaN. Run `pip install pyrqa` to enable.")
 
 # Optional diagnostic plots (delegated to a helper module)
 try:
