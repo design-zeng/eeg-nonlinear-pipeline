@@ -645,15 +645,27 @@ def _cpu_rqa_worker(
             shm_arr[...] = rp
             task_q.put((job_id, shm.name, rp.shape, rp.dtype.str))
 
-            # wait result
-            while True:
-                jid, *data = result_q.get()
-                if jid == job_id:
-                    if data[0] == "ERROR":
-                        raise RuntimeError(f"GPU worker error: {data[1]}")
-                    clust, trans = data
-                    break
-            shm.unlink()
+            # wait result with fallback
+            clust, trans = np.nan, np.nan
+            try:
+                while True:
+                    jid, *data = result_q.get(timeout=30)
+                    if jid == job_id:
+                        if data[0] == "ERROR":
+                            warnings.warn(f"GPU calculation fallback to CPU ({data[1]})")
+                            clust, trans = _network_measures(rp)
+                        else:
+                            clust, trans = data
+                        break
+            except Exception as exc:
+                warnings.warn(f"GPU worker timeout/error ({exc}), falling back to CPU.")
+                clust, trans = _network_measures(rp)
+            finally:
+                try:
+                    shm.close()
+                    shm.unlink()
+                except Exception:
+                    pass
 
         result = res_base.as_array()
         result[-2] = clust
@@ -717,9 +729,10 @@ def rqa_analysis(
     task_q: managers.QueueProxy   = manager.Queue()
     result_q: managers.QueueProxy = manager.Queue()
 
-    gpu_proc = mp.Process(target=_gpu_worker,
-                          args=(task_q, result_q, 0),
-                          daemon=True)
+    spawn_ctx = mp.get_context('spawn')
+    gpu_proc = spawn_ctx.Process(target=_gpu_worker,
+                                 args=(task_q, result_q, 0),
+                                 daemon=True)
     gpu_proc.start()
 
     with ProcessPoolExecutor(max_workers=cpu_workers,
