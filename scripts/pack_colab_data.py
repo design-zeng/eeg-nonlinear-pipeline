@@ -119,7 +119,13 @@ def main():
         if filter_keys:
             matches = False
             for fk in filter_keys:
-                if fk in stem or stem.endswith(f"_{fk}") or stem == f"S{fk}":
+                if stem == fk or stem == f"S{fk}" or stem.endswith(f"_{fk}") or stem.endswith(f"_Sub_{fk}"):
+                    matches = True
+                    break
+                # Check for Data_Creativity_Sub_{fk} pattern
+                import re
+                m = re.search(r'(?:Sub_|S)(\d+)$', stem, re.IGNORECASE)
+                if m and m.group(1) == fk:
                     matches = True
                     break
             if not matches:
